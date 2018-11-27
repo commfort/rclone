@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 """
 Make single page versions of the documentation for release and
 conversion into man pages etc.
@@ -18,18 +18,36 @@ docs = [
     "docs.md",
     "remote_setup.md",
     "filtering.md",
+    "rc.md",
     "overview.md",
-    "drive.md",
-    "s3.md",
-    "swift.md",
-    "dropbox.md",
-    "googlecloudstorage.md",
+
+    # Keep these alphabetical by full name
+    "alias.md",
     "amazonclouddrive.md",
-    "onedrive.md",
-    "hubic.md",
+    "s3.md",
     "b2.md",
-    "yandex.md",
+    "box.md",
+    "cache.md",
     "crypt.md",
+    "dropbox.md",
+    "ftp.md",
+    "googlecloudstorage.md",
+    "drive.md",
+    "http.md",
+    "hubic.md",
+    "jottacloud.md",
+    "mega.md",
+    "azureblob.md",
+    "onedrive.md",
+    "opendrive.md",
+    "qingstor.md",
+    "swift.md",
+    "pcloud.md",
+    "sftp.md",
+    "union.md",
+    "webdav.md",
+    "yandex.md",
+
     "local.md",
     "changelog.md",
     "bugs.md",
@@ -80,7 +98,10 @@ def read_doc(doc):
     # Remove icons
     contents = re.sub(r'<i class="fa.*?</i>\s*', "", contents)
     # Make [...](/links/) absolute
-    contents = re.sub(r'\((\/.*?\/)\)', r"(http://rclone.org\1)", contents)
+    contents = re.sub(r'\((\/.*?\/)\)', r"(https://rclone.org\1)", contents)
+    # Interpret provider shortcode
+    # {{< provider name="Amazon S3" home="https://aws.amazon.com/s3/" config="/s3/" >}}
+    contents = re.sub(r'\{\{<\s+provider.*?name="(.*?)".*?>\}\}', r"\1", contents)
     return contents
 
 def check_docs(docpath):

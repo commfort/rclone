@@ -2,11 +2,17 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
+// +build !appengine
+
 package internal
 
 import (
+	"log"
 	"net/http"
 	"os"
+	"strings"
+
+	netcontext "golang.org/x/net/context"
 )
 
 // These functions are implementations of the wrapper functions
@@ -18,16 +24,38 @@ const (
 	hDatacenter             = "X-AppEngine-Datacenter"
 )
 
-func DefaultVersionHostname(req interface{}) string {
-	return req.(*http.Request).Header.Get(hDefaultVersionHostname)
+func ctxHeaders(ctx netcontext.Context) http.Header {
+	c := fromContext(ctx)
+	if c == nil {
+		return nil
+	}
+	return c.Request().Header
 }
 
-func RequestID(req interface{}) string {
-	return req.(*http.Request).Header.Get(hRequestLogId)
+func DefaultVersionHostname(ctx netcontext.Context) string {
+	return ctxHeaders(ctx).Get(hDefaultVersionHostname)
 }
 
-func Datacenter(req interface{}) string {
-	return req.(*http.Request).Header.Get(hDatacenter)
+func RequestID(ctx netcontext.Context) string {
+	return ctxHeaders(ctx).Get(hRequestLogId)
+}
+
+func Datacenter(ctx netcontext.Context) string {
+	if dc := ctxHeaders(ctx).Get(hDatacenter); dc != "" {
+		return dc
+	}
+	// If the header isn't set, read zone from the metadata service.
+	// It has the format projects/[NUMERIC_PROJECT_ID]/zones/[ZONE]
+	zone, err := getMetadata("instance/zone")
+	if err != nil {
+		log.Printf("Datacenter: %v", err)
+		return ""
+	}
+	parts := strings.Split(string(zone), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
 
 func ServerSoftware() string {
@@ -35,27 +63,39 @@ func ServerSoftware() string {
 	if s := os.Getenv("SERVER_SOFTWARE"); s != "" {
 		return s
 	}
+	if s := os.Getenv("GAE_ENV"); s != "" {
+		return s
+	}
 	return "Google App Engine/1.x.x"
 }
 
 // TODO(dsymonds): Remove the metadata fetches.
 
-func ModuleName() string {
+func ModuleName(_ netcontext.Context) string {
 	if s := os.Getenv("GAE_MODULE_NAME"); s != "" {
+		return s
+	}
+	if s := os.Getenv("GAE_SERVICE"); s != "" {
 		return s
 	}
 	return string(mustGetMetadata("instance/attributes/gae_backend_name"))
 }
 
-func VersionID() string {
-	if s := os.Getenv("GAE_MODULE_VERSION"); s != "" {
-		return s
+func VersionID(_ netcontext.Context) string {
+	if s1, s2 := os.Getenv("GAE_MODULE_VERSION"), os.Getenv("GAE_MINOR_VERSION"); s1 != "" && s2 != "" {
+		return s1 + "." + s2
 	}
-	return string(mustGetMetadata("instance/attributes/gae_backend_version"))
+	if s1, s2 := os.Getenv("GAE_VERSION"), os.Getenv("GAE_DEPLOYMENT_ID"); s1 != "" && s2 != "" {
+		return s1 + "." + s2
+	}
+	return string(mustGetMetadata("instance/attributes/gae_backend_version")) + "." + string(mustGetMetadata("instance/attributes/gae_backend_minor_version"))
 }
 
 func InstanceID() string {
 	if s := os.Getenv("GAE_MODULE_INSTANCE"); s != "" {
+		return s
+	}
+	if s := os.Getenv("GAE_INSTANCE"); s != "" {
 		return s
 	}
 	return string(mustGetMetadata("instance/attributes/gae_backend_instance"))
@@ -63,14 +103,19 @@ func InstanceID() string {
 
 func partitionlessAppID() string {
 	// gae_project has everything except the partition prefix.
-	appID := os.Getenv("GAE_LONG_APP_ID")
-	if appID == "" {
-		appID = string(mustGetMetadata("instance/attributes/gae_project"))
+	if appID := os.Getenv("GAE_LONG_APP_ID"); appID != "" {
+		return appID
 	}
-	return appID
+	if project := os.Getenv("GOOGLE_CLOUD_PROJECT"); project != "" {
+		return project
+	}
+	return string(mustGetMetadata("instance/attributes/gae_project"))
 }
 
-func fullyQualifiedAppID() string {
+func fullyQualifiedAppID(_ netcontext.Context) string {
+	if s := os.Getenv("GAE_APPLICATION"); s != "" {
+		return s
+	}
 	appID := partitionlessAppID()
 
 	part := os.Getenv("GAE_PARTITION")
@@ -82,4 +127,8 @@ func fullyQualifiedAppID() string {
 		appID = part + "~" + appID
 	}
 	return appID
+}
+
+func IsDevAppServer() bool {
+	return os.Getenv("RUN_WITH_DEVAPPSERVER") != ""
 }
